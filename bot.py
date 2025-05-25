@@ -12,7 +12,7 @@ from telegram.ext import (
 from yt_dlp import YoutubeDL
 
 # --- Config ---
-ADMIN_ID = 1421439076  # Replace with your Telegram user ID
+ADMIN_ID = 1421439076  # Put your Telegram user ID here
 
 # Logging setup
 logging.basicConfig(
@@ -21,7 +21,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# yt-dlp options
+# YTDLP options
 YDL_OPTS = {
     'format': 'mp4',
     'outtmpl': 'downloads/%(id)s.%(ext)s',
@@ -38,8 +38,8 @@ conn = sqlite3.connect('users.db', check_same_thread=False)
 cursor = conn.cursor()
 cursor.execute('''
     CREATE TABLE IF NOT EXISTS users (
-        user_id INTEGER PRIMARY KEY,
-        username TEXT,
+        user_id INTEGER PRIMARY KEY, 
+        username TEXT, 
         blocked INTEGER DEFAULT 0
     )
 ''')
@@ -54,7 +54,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         (user.id, user.username)
     )
     conn.commit()
-    await update.message.reply_text("Send me a video link from TikTok, Twitter, Snapchat, Facebook, and I'll download it for you!")
+    await update.message.reply_text(
+        "Welcome! Send me a video link from TikTok, Twitter, Snapchat, Facebook, and I'll download it for you."
+    )
 
 async def users(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
@@ -122,11 +124,13 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def download_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    cursor.execute('SELECT blocked FROM users WHERE user_id=?', (user_id,))
-    res = cursor.fetchone()
-    if res and res[0] == 1:
-        await update.message.reply_text("You are blocked from using this bot.")
-        return
+    # Admin can always use the bot regardless of block status
+    if user_id != ADMIN_ID:
+        cursor.execute('SELECT blocked FROM users WHERE user_id=?', (user_id,))
+        res = cursor.fetchone()
+        if res and res[0] == 1:
+            await update.message.reply_text("You are blocked from using this bot.")
+            return
 
     url = update.message.text.strip()
     await update.message.reply_text("Downloading your video... Please wait.")
@@ -154,15 +158,18 @@ def main():
 
     app = ApplicationBuilder().token(TOKEN).build()
 
+    # Command handlers
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("users", users))
     app.add_handler(CommandHandler("block", block))
     app.add_handler(CommandHandler("unblock", unblock))
     app.add_handler(CommandHandler("stats", stats))
+
+    # Handle all text messages (video download)
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), download_video))
 
     print("Bot is running...")
     app.run_polling()
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
