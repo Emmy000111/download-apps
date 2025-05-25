@@ -1,69 +1,124 @@
 import os
 import logging
 import sqlite3
+import time
 from telegram import Update, InputFile
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
     MessageHandler,
-    filters,
     ContextTypes,
+    filters,
 )
 from yt_dlp import YoutubeDL
 
-# --- Config ---
-ADMIN_ID = 1421439076  # Your Telegram ID here
+# === CONFIG ===
+ADMIN_ID = 1421439076  # <-- Replace with your Telegram ID
+DB_PATH = 'users.db'
+DOWNLOAD_DIR = 'downloads'
+USER_ONLINE_WINDOW = 600  # 10 minutes
 
-# Logging setup
+# === LOGGING ===
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
 
+# === YTDLP OPTIONS ===
 YDL_OPTS = {
     'format': 'mp4',
-    'outtmpl': 'downloads/%(id)s.%(ext)s',
+    'outtmpl': f'{DOWNLOAD_DIR}/%(id)s.%(ext)s',
     'noplaylist': True,
     'quiet': True,
     'no_warnings': True,
 }
 
-if not os.path.exists('downloads'):
-    os.makedirs('downloads')
+os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
-conn = sqlite3.connect('users.db', check_same_thread=False)
+# === DATABASE SETUP ===
+conn = sqlite3.connect(DB_PATH, check_same_thread=False)
 cursor = conn.cursor()
 cursor.execute('''
     CREATE TABLE IF NOT EXISTS users (
         user_id INTEGER PRIMARY KEY,
-        username TEXT
+        username TEXT,
+        blocked INTEGER DEFAULT 0,
+        last_seen INTEGER
     )
 ''')
 conn.commit()
 
+# === HANDLERS ===
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
-    cursor.execute(
-        'INSERT OR IGNORE INTO users (user_id, username) VALUES (?, ?)',
-        (user.id, user.username)
-    )
+    timestamp = int(time.time())
+    cursor.execute('''
+        INSERT OR IGNORE INTO users (user_id, username, last_seen)
+        VALUES (?, ?, ?)
+    ''', (user.id, user.username, timestamp))
+    cursor.execute('''
+        UPDATE users SET last_seen=? WHERE user_id=?
+    ''', (timestamp, user.id))
     conn.commit()
     await update.message.reply_text(
-        "Welcome! Send me a video link and I'll download it for you."
+        "👋 Send me a video link from TikTok, Twitter, Facebook, or Snapchat and I'll download it for you!"
     )
 
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
-        await update.message.reply_text("Unauthorized: Admins only.")
+        await update.message.reply_text("🚫 Unauthorized access.")
         return
+
+    current_time = int(time.time())
     cursor.execute('SELECT COUNT(*) FROM users')
     total_users = cursor.fetchone()[0]
-    await update.message.reply_text(f"Total users: {total_users}")
+
+    cursor.execute('SELECT COUNT(*) FROM users WHERE blocked=1')
+    blocked_users = cursor.fetchone()[0]
+
+    cursor.execute('SELECT COUNT(*) FROM users WHERE blocked=0')
+    active_users = cursor.fetchone()[0]
+
+    cursor.execute('SELECT COUNT(*) FROM users WHERE last_seen >= ?', (current_time - USER_ONLINE_WINDOW,))
+    online_users = cursor.fetchone()[0]
+    offline_users = active_users - online_users
+
+    msg = (
+        "📊 <b>User Statistics</b>\n\n"
+        f"👥 Total Users: <b>{total_users}</b>\n"
+        f"✅ Active Users: <b>{active_users}</b>\n"
+        f"🟢 Online: <b>{online_users}</b>\n"
+        f"🟡 Offline: <b>{offline_users}</b>\n"
+        f"⛔ Blocked Users: <b>{blocked_users}</b>"
+    )
+    await update.message.reply_html(msg)
 
 async def download_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    username = update.effective_user.username
+    timestamp = int(time.time())
+
+    cursor.execute('SELECT blocked FROM users WHERE user_id=?', (user_id,))
+    res = cursor.fetchone()
+
+    if res and res[0] == 1:
+        await update.message.reply_text("🚫 You are blocked from using this bot.")
+        return
+
+    cursor.execute('''
+        INSERT OR IGNORE INTO users (user_id, username, last_seen)
+        VALUES (?, ?, ?)
+    ''', (user_id, username, timestamp))
+    cursor.execute('''
+        UPDATE users SET last_seen=? WHERE user_id=?
+    ''', (timestamp, user_id))
+    conn.commit()
+
     url = update.message.text.strip()
-    await update.message.reply_text("Downloading your video... Please wait.")
+    await update.message.reply_text("⏳ Downloading... Please wait.")
+
     try:
         with YoutubeDL(YDL_OPTS) as ydl:
             info = ydl.extract_info(url, download=True)
@@ -74,13 +129,15 @@ async def download_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         os.remove(filepath)
     except Exception as e:
-        logger.error(f"Error downloading video: {e}")
-        await update.message.reply_text("Sorry, I couldn't download the video. Please check the link and try again.")
+        logger.error(f"Download error: {e}")
+        await update.message.reply_text("❌ Failed to download. Please check the link and try again.")
+
+# === MAIN ===
 
 def main():
     TOKEN = os.getenv("BOT_TOKEN")
     if not TOKEN:
-        print("Error: BOT_TOKEN environment variable not set")
+        print("❌ Error: BOT_TOKEN environment variable not set.")
         return
 
     app = ApplicationBuilder().token(TOKEN).build()
@@ -89,8 +146,8 @@ def main():
     app.add_handler(CommandHandler("stats", stats))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), download_video))
 
-    print("Bot is running...")
+    print("✅ Bot is running...")
     app.run_polling()
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()
