@@ -60,7 +60,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         (datetime.utcnow().isoformat(), user.id)
     )
     conn.commit()
-    await update.message.reply_text("Send me a video or photo link from TikTok, Twitter, Snapchat, Facebook, etc. and I’ll download it for you!")
+    await update.message.reply_text("Send me a video link from TikTok, Twitter, Facebook, etc. I’ll download it for you!")
 
 
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
