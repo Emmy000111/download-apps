@@ -6,8 +6,8 @@ from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
     MessageHandler,
-    ContextTypes,
     filters,
+    ContextTypes,
 )
 from yt_dlp import YoutubeDL
 
@@ -17,7 +17,7 @@ ADMIN_ID = 1421439076  # Replace with your Telegram user ID
 # Logging setup
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO,
+    level=logging.INFO
 )
 logger = logging.getLogger(__name__)
 
@@ -30,11 +30,10 @@ YDL_OPTS = {
     'no_warnings': True,
 }
 
-# Create downloads folder if missing
 if not os.path.exists('downloads'):
     os.makedirs('downloads')
 
-# SQLite DB setup (shared between admin & download)
+# SQLite DB setup
 conn = sqlite3.connect('users.db', check_same_thread=False)
 cursor = conn.cursor()
 cursor.execute('''
@@ -55,9 +54,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         (user.id, user.username)
     )
     conn.commit()
-    await update.message.reply_text(
-        "Send me a video link from TikTok, Twitter, Snapchat, Facebook, and I'll download it for you!"
-    )
+    await update.message.reply_text("Send me a video link from TikTok, Twitter, Snapchat, Facebook, and I'll download it for you!")
 
 async def users(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
@@ -152,23 +149,20 @@ async def download_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def main():
     TOKEN = os.getenv("BOT_TOKEN")
     if not TOKEN:
-        logger.error("BOT_TOKEN environment variable not set")
+        print("Error: BOT_TOKEN environment variable not set")
         return
 
     app = ApplicationBuilder().token(TOKEN).build()
 
-    # User commands
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), download_video))
-
-    # Admin commands
     app.add_handler(CommandHandler("users", users))
     app.add_handler(CommandHandler("block", block))
     app.add_handler(CommandHandler("unblock", unblock))
     app.add_handler(CommandHandler("stats", stats))
+    app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), download_video))
 
-    logger.info("Bot started")
+    print("Bot is running...")
     app.run_polling()
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()
